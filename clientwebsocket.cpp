@@ -5,6 +5,7 @@ ClientWebSocket::ClientWebSocket(QObject *parent)
 {
     // 创建tcp套接字
     m_tcpsock = new QTcpSocket(this);
+    m_tcpsock->setReadBufferSize(128*1024);
 
     // 断开连接事件
     QObject::connect(m_tcpsock, &QTcpSocket::disconnected, parent, [parent](){
@@ -38,10 +39,11 @@ void ClientWebSocket::writeMsg(QByteArray str)
 {
     // 加入魔数和数据大小头部
     uint32_t size = str.size();
-    uint32_t magic = 0x17171717;
-    str.prepend(size);
-    str.prepend(magic);
+    size = htonl(size);
+    uint32_t magic = htonl(17171717);
 
+    str.prepend(reinterpret_cast<const char*>(&size), sizeof(size));
+    str.prepend(reinterpret_cast<const char*>(&magic), sizeof(magic));
     // 发出数据
     m_tcpsock->write(str);
 }
@@ -49,21 +51,36 @@ void ClientWebSocket::writeMsg(QByteArray str)
 // 读消息
 QJsonObject ClientWebSocket::readMsg()
 {
+    // 读取包头
+    while(m_tcpsock->bytesAvailable()<12) QCoreApplication::processEvents();
+    QByteArray header = m_tcpsock->read(12);
+    if(header.left(8)!="17171717")return QJsonObject();
+    QByteArray leninfo = header.right(4);
+    QDataStream stream(leninfo);
+    stream.setByteOrder(QDataStream::LittleEndian); // 如果是小端序，设置字节序，根据实际情况调整
+    uint32_t datalen = 0;
+    stream >> datalen;
+
+    // 读取足够数据
     QByteArray codedata;
-    // 读取所有可用数据
-    while (m_tcpsock->bytesAvailable() > 0) {
-        codedata += m_tcpsock->readAll();
-    }
+    while (m_tcpsock->bytesAvailable()<datalen)QCoreApplication::processEvents();
+
+
+    codedata += m_tcpsock->readAll();
+
+    qDebug()<<codedata;
+
+
     // 解码
     QByteArray data = QByteArray::fromBase64(codedata);
+    qDebug()<<data;
 
     // 准备解析json数据
     QJsonParseError jsonError;
     QJsonDocument jsondocu = QJsonDocument::fromJson(data, &jsonError);  // 转化为 JSON 文档
     if (jsonError.error != QJsonParseError::NoError) {
         qWarning() << "解析Json错误:" << jsonError.errorString();
-        QJsonObject jsondata;
-        return jsondata;
+        return QJsonObject();
     }
     // 获取解析后的json数据
     QJsonObject jsondata = jsondocu.object();
@@ -90,11 +107,17 @@ void ClientWebSocket::sendLoginSignupMsg(QJsonObject msg)
 // 上传图片
 void ClientWebSocket::uploadImg(QJsonObject msg)
 {
+    // 处理可读信号
+    if(m_count == 0)
+    {
+        QObject::connect(m_tcpsock, &QTcpSocket::readyRead, this, &ClientWebSocket::processUploadRetMsg);
+    }
+    m_count++;
+
     msg.insert("request", "upload");
     QJsonDocument jsonDocument(msg);
     QByteArray byteArray = jsonDocument.toJson();
     QByteArray codeStr = byteArray.toBase64().constData();
-
     // 发出数据
     writeMsg(codeStr);
 }
@@ -118,14 +141,15 @@ void ClientWebSocket::getCloudList(QString username)
 // 获取图片数据
 void ClientWebSocket::getImg(QString username, QString imgname)
 {
+    // 连接信号槽函数
     QObject::connect(m_tcpsock, &QTcpSocket::readyRead, this, &ClientWebSocket::processImgDataMsg);
     // 创建Json数据
     QJsonObject userdata;
     userdata.insert("username", username);
     userdata.insert("imgname", imgname);
     QJsonObject msg;
-    msg.insert("userdata","userdata");
-
+    msg.insert("userdata", userdata);
+    msg.insert("request", "getimg");
     // base64编码
     QJsonDocument jsonDocument(msg);
     QByteArray byteArray = jsonDocument.toJson();
@@ -201,7 +225,6 @@ void ClientWebSocket::processGetListRetMsg()
 void ClientWebSocket::processImgDataMsg()
 {
     QWidget *parentWidget = qobject_cast<QWidget*>(parent());
-    QObject::disconnect(m_tcpsock, &QTcpSocket::readyRead, this, &ClientWebSocket::processImgDataMsg);
 
     // 读取socket数据
     QJsonObject jsondata = readMsg();
@@ -221,15 +244,51 @@ void ClientWebSocket::processImgDataMsg()
         box->exec();
         return;
     }
-    QString imgdata = jsondata.value("imgdata").toString();
 
-    // aes128 解码
-    QByteArray key("FileStoreService");
+    // 获取数据
+    QString imgData = jsondata.value("imgdata").toString();
+    // base64解码
+    QByteArray base64Data = imgData.toUtf8();
+    // aes128解码
+    QByteArray encryptedData = QByteArray::fromBase64(base64Data);
+    QByteArray key ("FileStoreService");
     QAESEncryption aesEncryption(QAESEncryption::AES_128, QAESEncryption::CBC);
-    QByteArray byteArray = imgdata.toUtf8();
-    QByteArray decryptedData = aesEncryption.decode(byteArray, key, key);
+    QByteArray decryptedData = aesEncryption.decode(encryptedData, key, key);
 
-    // 触发接受信号
-    emit imgDataReceived(decryptedData);
+    // 直接显示
+    ImageBox * imgBox = new ImageBox();
+    imgBox->setLabelImg(decryptedData);
+    imgBox->show();
+    QObject::disconnect(m_tcpsock, &QTcpSocket::readyRead, this, &ClientWebSocket::processImgDataMsg);
+
+    return;
+}
+
+// 处理上传图片返回的信息
+void ClientWebSocket::processUploadRetMsg()
+{
+    // 断开信号槽函数
+    m_count--;
+    if(m_count == 0)
+    {
+        QObject::disconnect(m_tcpsock, &QTcpSocket::readyRead, this, &ClientWebSocket::processUploadRetMsg);
+    }
+    QWidget *parentWidget = qobject_cast<QWidget*>(parent());
+    QJsonObject jsondata = readMsg();
+    if(jsondata.isEmpty())
+    {
+        MsgBox *box = new MsgBox(parentWidget, "json解析为空", "错误");
+        box->exec();
+        return;
+    }
+    // 读取状态和信息
+    int status = jsondata.value("status").toVariant().toInt();
+    if(status != 0)
+    {
+        QString msg = jsondata.value("imgname").toString();
+        MsgBox *box = new MsgBox(parentWidget, msg+"已存在", "错误");
+        box->show();
+    }
+    return;
 }
 

@@ -1,6 +1,6 @@
-QT       += core gui
+win32: LIBS += -lws2_32
 
-QT += websockets
+QT += core gui websockets
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 CONFIG += c++17
@@ -11,20 +11,25 @@ CONFIG += console
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 SOURCES += \
+    base64.cpp \
     clientwebsocket.cpp \
+    imagebox.cpp \
     main.cpp \
     mainwindow.cpp \
     msgbox.cpp \
     qaesencryption.cpp
 
 HEADERS += \
+    base64.h \
     clientwebsocket.h \
     header.h \
+    imagebox.h \
     mainwindow.h \
     msgbox.h \
     qaesencryption.h
 
 FORMS += \
+    imagebox.ui \
     mainwindow.ui \
     msgbox.ui
 

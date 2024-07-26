@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
-
+#include "base64.h"
+using namespace std;
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -8,6 +9,7 @@ MainWindow::MainWindow(QWidget *parent)
     //pswLineEdit为密码输入框的name
     ui->setupUi(this);
     ui->lineEditPassword->setEchoMode(QLineEdit::Password);
+    ui->listViewCloudLists->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
     // 固定大小
     setFixedSize(this->width(), this->height());
@@ -22,7 +24,6 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_websock, &ClientWebSocket::imgListReceived, this, &MainWindow::updateCloudList);
     connect(ui->listViewCloudLists, &QListView::doubleClicked, this, &MainWindow::doubleClickOnCloudListView);
-    connect(m_websock, &ClientWebSocket::imgDataReceived, this, &MainWindow::showImg);
 }
 
 MainWindow::~MainWindow()
@@ -106,7 +107,7 @@ void MainWindow::on_pushButtonSignUp_clicked()
     // 创建Json
     QJsonObject msg;
     msg.insert("userdata", userdata);
-    msg.insert("request", "login");
+    msg.insert("request", "signup");
 
     // 通过socket写出msg
     m_websock->sendLoginSignupMsg(msg);
@@ -128,6 +129,7 @@ void MainWindow::on_pushButtonSelectFile_clicked()
 
     // 获取已选择的路径和原路径拼接
     QStringList strList = m_uploadModel->stringList();
+
     QStringList filenames = QFileDialog::getOpenFileNames(this, "选择待上传的图片文件", curPath, "图片文件(*.png)");
     // 过滤相同的
     for (const QString &item : filenames) {
@@ -161,31 +163,37 @@ void MainWindow::on_pushButtonUpload_clicked()
     // 对每个文件操作
     for (int i = 0; i < strList.size(); ++i)
     {
-        // 读取图片二进制数据
-        QFile file(strList[i]);
-        if (!file.open(QIODevice::ReadOnly)) {
-            qWarning() << "打开文件失败：" << file.errorString();
-            return;
-        }
-        // 读取文件内容
-        QByteArray imageData = file.readAll();
-        file.close();
+        // 读取图片的二进制数据
+        std::ifstream ifs;
+        ifs.open(strList[i].toStdString(), std::ios::in );
+        // ifs.open("/home/tiki/Desktop/code/client/test/test.dat", std::ios::in | std::ios::binary);
+        ifs.seekg(0, ifs.end);
+        int length = ifs.tellg();
+        ifs.seekg(0, ifs.beg);
+        std::string imageData;
+        imageData.resize(length);
+        ifs.read(&imageData[0], length);
+        ifs.close();
 
-        // 用aes128加密
+        // aes128 加密
+        QByteArray imageDataArray = QByteArray::fromStdString(imageData);
         QByteArray key ("FileStoreService");
         QAESEncryption aesEncryption(QAESEncryption::AES_128, QAESEncryption::CBC);
-        QByteArray encryptedData = aesEncryption.encode(imageData, key, key);
+        QByteArray encryptedData = aesEncryption.encode(imageDataArray, key, key);
+        QByteArray base64Data = encryptedData.toBase64();
 
-        // 准备Json
-        QFileInfo fileInfo(strList[i]);
+        // 准备json
         QJsonObject userdata;
-        userdata.insert("username", m_username);
-        userdata.insert("imgname", fileInfo.fileName());
-        userdata.insert("imgdata", QString(encryptedData));
         QJsonObject msg;
-        msg.insert("userdata", userdata);
+        // 图片信息：用户名 图片名
+        QFileInfo fileInfo(strList[i]);
+        userdata["username"] = m_username;
+        userdata["imgname"] = fileInfo.fileName();
+        QString strdata = QString::fromUtf8(base64Data);
+        userdata["imgdata"] = strdata;
+        msg["userdata"] = userdata;
 
-        // 发送数据至服务端
+        // // 发送数据至服务端
         m_websock->uploadImg(msg);
     }
     // 清空list和model
@@ -197,10 +205,10 @@ void MainWindow::updateCloudList(QStringList imgs)
 {
     m_cloudModel->setStringList(imgs);
     // 展示到ui
-    ui->listViewSelectLists->setModel(m_uploadModel);
+    ui->listViewCloudLists->setModel(m_cloudModel);
     // 选中最后一行
-    QModelIndex index = m_uploadModel->index(m_uploadModel->rowCount(),0);
-    ui->listViewSelectLists->setCurrentIndex(index);
+    QModelIndex index = m_cloudModel->index(m_cloudModel->rowCount(),0);
+    ui->listViewCloudLists->setCurrentIndex(index);
 }
 
 void MainWindow::on_pushButtonFlush_clicked()
@@ -227,14 +235,4 @@ void MainWindow::doubleClickOnCloudListView(const QModelIndex &index)
 
     // 请求图片数据
     m_websock->getImg(m_username, imgName);
-}
-
-void MainWindow::showImg(QByteArray imgdata)
-{
-    QPixmap pixmap;
-    pixmap.loadFromData(imgdata);
-    QLabel *label = new QLabel(this);
-    label->setPixmap(pixmap);
-    label->resize(pixmap.height(),pixmap.width());
-    label->show();
 }
