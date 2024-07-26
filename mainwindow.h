@@ -37,8 +37,6 @@ private slots:
 
     void doubleClickOnCloudListView(const QModelIndex &index);          // 双击云列表
 
-    void showImg(QByteArray imgdata);                                 // 展示图片
-
     void updateCloudList(QStringList imgs);         // 更新云列表
 private:
     Ui::MainWindow *ui;                 // ui界面

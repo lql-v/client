@@ -15,6 +15,9 @@
 #include <QStringListModel>
 #include <QMenu>
 #include <QLabel>
-
-
+#include <QImageReader>
+#include <QBuffer>
+#include <string>
+#include <fstream>
+#include <iostream>
 #endif // HEADER_H
