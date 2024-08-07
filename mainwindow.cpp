@@ -6,24 +6,25 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
-    //pswLineEdit为密码输入框的name
+    // 绑定ui界面
     ui->setupUi(this);
-    ui->lineEditPassword->setEchoMode(QLineEdit::Password);
-    ui->listViewCloudLists->setEditTriggers(QAbstractItemView::NoEditTriggers);
-
-    // 固定大小
-    setFixedSize(this->width(), this->height());
 
     // 创建与服务端连接
     m_websock = new ClientWebSocket(this);
-    m_uploadModel = new QStringListModel(this);
-    m_cloudModel = new QStringListModel(this);
 
+    // 配置UI界面
+    ui->lineEditPassword->setEchoMode(QLineEdit::Password);
+    setFixedSize(this->width(), this->height());
+    // 绑定待上传列表双击事件
+    m_uploadModel = new QStringListModel(this);
     connect(ui->listViewSelectLists, &QListView::doubleClicked,
             this, &MainWindow::doubleClickOnSelectedListView);
-
-    connect(m_websock, &ClientWebSocket::imgListReceived, this, &MainWindow::updateCloudList);
+    // 绑定云列表双击事件
+    m_cloudModel = new QStringListModel(this);
+    ui->listViewCloudLists->setEditTriggers(QAbstractItemView::NoEditTriggers);
     connect(ui->listViewCloudLists, &QListView::doubleClicked, this, &MainWindow::doubleClickOnCloudListView);
+    // 绑定云列表更新
+    connect(m_websock, &ClientWebSocket::imgListReceived, this, &MainWindow::updateCloudList);
 }
 
 MainWindow::~MainWindow()
@@ -165,10 +166,11 @@ void MainWindow::on_pushButtonUpload_clicked()
     {
         // 读取图片的二进制数据
         std::ifstream ifs;
-        ifs.open(strList[i].toStdString(), std::ios::in );
-        // ifs.open("/home/tiki/Desktop/code/client/test/test.dat", std::ios::in | std::ios::binary);
+        ifs.open(strList[i].toStdString(), std::ios::in);
+
+        // 计算数据长度
         ifs.seekg(0, ifs.end);
-        int length = ifs.tellg();
+        long long length = ifs.tellg();
         ifs.seekg(0, ifs.beg);
         std::string imageData;
         imageData.resize(length);
@@ -193,7 +195,7 @@ void MainWindow::on_pushButtonUpload_clicked()
         userdata["imgdata"] = strdata;
         msg["userdata"] = userdata;
 
-        // // 发送数据至服务端
+        // 发送数据至服务端
         m_websock->uploadImg(msg);
     }
     // 清空list和model

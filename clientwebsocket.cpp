@@ -5,7 +5,7 @@ ClientWebSocket::ClientWebSocket(QObject *parent)
 {
     // 创建tcp套接字
     m_tcpsock = new QTcpSocket(this);
-    m_tcpsock->setReadBufferSize(128*1024);
+    m_tcpsock->setReadBufferSize(4*1024*1024);
 
     // 断开连接事件
     QObject::connect(m_tcpsock, &QTcpSocket::disconnected, parent, [parent](){
@@ -65,15 +65,10 @@ QJsonObject ClientWebSocket::readMsg()
     QByteArray codedata;
     while (m_tcpsock->bytesAvailable()<datalen)QCoreApplication::processEvents();
 
-
     codedata += m_tcpsock->readAll();
-
-    qDebug()<<codedata;
-
 
     // 解码
     QByteArray data = QByteArray::fromBase64(codedata);
-    qDebug()<<data;
 
     // 准备解析json数据
     QJsonParseError jsonError;
@@ -247,6 +242,7 @@ void ClientWebSocket::processImgDataMsg()
 
     // 获取数据
     QString imgData = jsondata.value("imgdata").toString();
+
     // base64解码
     QByteArray base64Data = imgData.toUtf8();
     // aes128解码
@@ -256,8 +252,7 @@ void ClientWebSocket::processImgDataMsg()
     QByteArray decryptedData = aesEncryption.decode(encryptedData, key, key);
 
     // 直接显示
-    ImageBox * imgBox = new ImageBox();
-    imgBox->setLabelImg(decryptedData);
+    ImageBox *imgBox = new ImageBox(nullptr, decryptedData);
     imgBox->show();
     QObject::disconnect(m_tcpsock, &QTcpSocket::readyRead, this, &ClientWebSocket::processImgDataMsg);
 
