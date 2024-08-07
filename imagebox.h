@@ -3,6 +3,8 @@
 
 #include <QWidget>
 #include <QScreen>
+#include <QLabel>
+#include <QVBoxLayout>
 namespace Ui {
 class ImageBox;
 }
@@ -12,11 +14,11 @@ class ImageBox : public QWidget
     Q_OBJECT
 
 public:
-    explicit ImageBox(QWidget *parent = nullptr);
-    void setLabelImg(QByteArray imgdata);
+    explicit ImageBox(QWidget *parent = nullptr, QByteArray imgdata = QByteArray());
     ~ImageBox();
 
 private:
+    QLabel *labelImage;
     Ui::ImageBox *ui;
 };
 
